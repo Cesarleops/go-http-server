@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 )
 
 type Response struct {
@@ -14,7 +15,7 @@ type Response struct {
 
 type Request struct {
 	startLine []string
-	headers   []string
+	headers   map[string]string
 	body      []string
 }
 
@@ -40,5 +41,55 @@ func main() {
 
 func handleConn(conn net.Conn) {
 	fmt.Println("listening")
-	conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+
+	buf := make([]byte, 1024)
+	_, err := conn.Read(buf)
+
+	if err != nil {
+		conn.Write([]byte("HTTP/1.1 404 Not Found"))
+		return
+	}
+
+	request := &Request{
+		headers: make(map[string]string),
+	}
+
+	data := string(buf)
+
+	fmt.Println("data", data)
+
+	parseRequest(data, request)
+
+	target := request.startLine[1]
+
+	if target == "/" {
+		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+
+	} else {
+		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+
+	}
+}
+
+func parseRequest(data string, request *Request) Request {
+
+	request.parseHeaders(data)
+	request.parseStartLine(data)
+
+	return *request
+}
+
+func (r *Request) parseStartLine(data string) {
+	startLine := data[:strings.Index(data, "\r\n")]
+	startLineSegments := strings.Split(startLine, " ")
+	method, target, protocol := startLineSegments[0], startLineSegments[1], startLineSegments[2]
+	r.startLine = []string{method, target, protocol}
+}
+
+func (r Request) parseHeaders(data string) {
+
+}
+
+func (r Response) parseHeaders(data string) {
+
 }
