@@ -40,14 +40,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	c, err := l.Accept()
+	for {
+		c, err := l.Accept()
 
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err.Error())
+			os.Exit(1)
+		}
+
+		go handleConn(c)
 	}
 
-	handleConn(c)
 }
 
 func handleConn(conn net.Conn) {
