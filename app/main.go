@@ -43,6 +43,7 @@ func handleConn(conn net.Conn) {
 	fmt.Println("listening")
 
 	buf := make([]byte, 1024)
+
 	_, err := conn.Read(buf)
 
 	if err != nil {
@@ -56,18 +57,21 @@ func handleConn(conn net.Conn) {
 
 	data := string(buf)
 
-	fmt.Println("data", data)
+	fmt.Println("Data", data)
 
 	parseRequest(data, request)
 
 	target := request.startLine[1]
 
-	if target == "/" {
-		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	paths := strings.Split(strings.TrimPrefix(target, "/"), "/")
 
+	if paths[0] == "echo" {
+		response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(paths[1]), paths[1])
+		conn.Write([]byte(response))
+	} else if target == "/" {
+		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 	} else {
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-
 	}
 }
 
@@ -78,6 +82,10 @@ func parseRequest(data string, request *Request) Request {
 
 	return *request
 }
+
+// func parseResponse(data string, response *Response) {
+// 	headers := "Content-Type: text/plain\r\nContent-Length: 3\r\n"
+// }
 
 func (r *Request) parseStartLine(data string) {
 	startLine := data[:strings.Index(data, "\r\n")]
