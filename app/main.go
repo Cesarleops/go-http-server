@@ -7,30 +7,41 @@ import (
 	"strings"
 )
 
-type Response struct {
-	startLine []string
-	headers   []string
-	body      []string
+type Request struct {
+	startLine RequestStartLine
+	headers   map[string]string
+	body      string
 }
 
-type Request struct {
-	startLine []string
-	headers   map[string]string
-	body      []string
+type Response struct {
+	startLine ResponseStartLine
+	headers   []string
+	body      string
+}
+
+type RequestStartLine struct {
+	method   string
+	target   string
+	protocol string
+}
+
+type ResponseStartLine struct {
+	protocol string
+	status   string
+	reason   string
 }
 
 func main() {
 
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 
-	fmt.Println("server", l)
 	if err != nil {
 		fmt.Println("Failed to bind to port 4221")
 		os.Exit(1)
 	}
 
 	c, err := l.Accept()
-	fmt.Println("c", c)
+
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
@@ -61,14 +72,20 @@ func handleConn(conn net.Conn) {
 
 	parseRequest(data, request)
 
-	target := request.startLine[1]
-
+	target := request.startLine.target
 	paths := strings.Split(strings.TrimPrefix(target, "/"), "/")
 
+	if target == "/user-agent" {
+		agent := request.headers["User-Agent"]
+		fmt.Printf("%q\n", agent)
+		response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(agent), request.headers["User-Agent"])
+		conn.Write([]byte(response))
+	}
 	if paths[0] == "echo" {
 		response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(paths[1]), paths[1])
 		conn.Write([]byte(response))
-	} else if target == "/" {
+	}
+	if target == "/" {
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 	} else {
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
@@ -83,21 +100,45 @@ func parseRequest(data string, request *Request) Request {
 	return *request
 }
 
-// func parseResponse(data string, response *Response) {
-// 	headers := "Content-Type: text/plain\r\nContent-Length: 3\r\n"
+// func parseResponse(body string, response *Response) {
+
+// 	startLine := "HTTP/1.1 200 OK\r\n"
+// 	headers := map[string]string{
+// 		"Content-Type":   "Application/json",
+// 		"Content-Length": string(len(body)),
+// 	}
 // }
 
 func (r *Request) parseStartLine(data string) {
 	startLine := data[:strings.Index(data, "\r\n")]
 	startLineSegments := strings.Split(startLine, " ")
 	method, target, protocol := startLineSegments[0], startLineSegments[1], startLineSegments[2]
-	r.startLine = []string{method, target, protocol}
+	r.startLine = RequestStartLine{
+		target:   target,
+		method:   method,
+		protocol: protocol,
+	}
 }
 
 func (r Request) parseHeaders(data string) {
+	headersStartIdx := strings.Index(data, "\r\n") + 2 // first character of the first header
+	headersEndIdx := strings.LastIndex(data, "\r\n\r\n")
+	headers := strings.Split(data[headersStartIdx:headersEndIdx], "\r\n")
+	fmt.Printf("%q\n", headers)
+	for _, header := range headers {
+		kv := strings.SplitN(string(header), ":", 2)
+		if len(kv) < 2 {
+			continue
+		}
+		k := kv[0]
+		v := strings.TrimSpace(kv[1])
+		r.headers[k] = v
+	}
 
 }
 
-func (r Response) parseHeaders(data string) {
-
+func (r Request) parseBody(data string) {
+	headersEndIdx := strings.LastIndex(data, "\r\n\r\n") + 4
+	body := data[headersEndIdx:]
+	r.body = body
 }
