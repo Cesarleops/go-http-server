@@ -80,10 +80,22 @@ func handleConn(conn net.Conn) {
 	paths := strings.Split(strings.TrimPrefix(target, "/"), "/")
 
 	if strings.HasPrefix(target, "/files") {
-		directory := os.Args[2]
 
 		fileName := paths[1]
+		directory := os.Args[2]
 
+		if request.startLine.method == "POST" {
+			response.parseStartLine("201", "Created")
+			fmt.Printf("b %q\n", request.body)
+			err := os.WriteFile(directory+"/"+fileName, []byte(request.body), 0644)
+			if err != nil {
+				conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+				return
+			}
+			conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
+			return
+
+		}
 		f, err := os.ReadFile(directory + "/" + fileName)
 
 		if err != nil {
@@ -91,6 +103,7 @@ func handleConn(conn net.Conn) {
 			return
 		}
 
+		response.parseStartLine("200", "OK")
 		response.parseHeaders("application/octet-stream", strconv.Itoa(len(f)))
 		response.parseBody(string(f))
 		response := response.String()
@@ -100,6 +113,7 @@ func handleConn(conn net.Conn) {
 	}
 	if target == "/user-agent" {
 		content := request.headers["User-Agent"]
+		response.parseStartLine("200", "OK")
 		response.parseHeaders("text/plain", strconv.Itoa(len(content)))
 		response.parseBody(content)
 		response := response.String()
@@ -108,6 +122,7 @@ func handleConn(conn net.Conn) {
 
 	}
 	if paths[0] == "echo" {
+		response.parseStartLine("200", "OK")
 		response.parseHeaders("text/plain", strconv.Itoa(len(paths[1])))
 		response.parseBody(paths[1])
 		response := response.String()
@@ -142,11 +157,8 @@ func (r *Request) parseStartLine(data string) {
 
 func (r *Request) parseHeaders(data string) {
 	headersStartIdx := strings.Index(data, "\r\n") + 2 // first character of the first header
-	fmt.Println("heads", headersStartIdx)
 	headersEndIdx := strings.LastIndex(data, "\r\n\r\n")
-	fmt.Println("headend", headersEndIdx)
 	headers := strings.Split(data[headersStartIdx:headersEndIdx], "\r\n")
-	fmt.Printf("%q\n", headers)
 	for _, header := range headers {
 		kv := strings.SplitN(string(header), ":", 2)
 		if len(kv) < 2 {
@@ -160,7 +172,23 @@ func (r *Request) parseHeaders(data string) {
 }
 
 func (r *Request) parseBody(data string) {
-	r.body = "moda"
+
+	bodyStartIdx := strings.LastIndex(data, "\r\n\r\n") + 4
+	bodyEndIdx, err := strconv.Atoi(r.headers["Content-Length"])
+
+	if err != nil {
+		return
+	}
+	r.body = data[bodyStartIdx : bodyStartIdx+bodyEndIdx]
+}
+
+func (r *Response) parseStartLine(statusCode string, reason string) {
+	r.startLine = ResponseStartLine{
+		protocol: "HTTP/1.1",
+		status:   statusCode,
+		reason:   reason,
+	}
+
 }
 
 func (r *Response) parseHeaders(contentType string, contentLength string) {
@@ -175,7 +203,8 @@ func (r *Response) parseBody(content string) {
 }
 
 func (r Response) String() string {
-	response := "HTTP/1.1 200 OK\r\n"
+
+	response := r.startLine.protocol + " " + r.startLine.status + " " + r.startLine.reason + "\r\n"
 
 	for k, v := range r.headers {
 		response += fmt.Sprintf("%s:%s\r\n", k, v)
