@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -15,7 +16,7 @@ type Request struct {
 
 type Response struct {
 	startLine ResponseStartLine
-	headers   []string
+	headers   map[string]string
 	body      string
 }
 
@@ -54,7 +55,6 @@ func main() {
 }
 
 func handleConn(conn net.Conn) {
-	fmt.Println("listening")
 
 	buf := make([]byte, 1024)
 
@@ -65,52 +65,69 @@ func handleConn(conn net.Conn) {
 		return
 	}
 
+	data := string(buf)
+
 	request := &Request{
 		headers: make(map[string]string),
 	}
 
-	data := string(buf)
+	request.build(data)
 
-	fmt.Println("Data", data)
-
-	parseRequest(data, request)
-
+	response := &Response{
+		headers: make(map[string]string),
+	}
 	target := request.startLine.target
 	paths := strings.Split(strings.TrimPrefix(target, "/"), "/")
 
-	if target == "/user-agent" {
-		agent := request.headers["User-Agent"]
-		fmt.Printf("%q\n", agent)
-		response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(agent), request.headers["User-Agent"])
+	if strings.HasPrefix(target, "/files") {
+		directory := os.Args[2]
+
+		fileName := paths[1]
+
+		f, err := os.ReadFile(directory + "/" + fileName)
+
+		if err != nil {
+			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			return
+		}
+
+		response.parseHeaders("application/octet-stream", strconv.Itoa(len(f)))
+		response.parseBody(string(f))
+		response := response.String()
 		conn.Write([]byte(response))
+		return
+
+	}
+	if target == "/user-agent" {
+		content := request.headers["User-Agent"]
+		response.parseHeaders("text/plain", strconv.Itoa(len(content)))
+		response.parseBody(content)
+		response := response.String()
+		conn.Write([]byte(response))
+		return
+
 	}
 	if paths[0] == "echo" {
-		response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(paths[1]), paths[1])
+		response.parseHeaders("text/plain", strconv.Itoa(len(paths[1])))
+		response.parseBody(paths[1])
+		response := response.String()
 		conn.Write([]byte(response))
+		return
 	}
+
 	if target == "/" {
+
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 	} else {
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
 }
 
-func parseRequest(data string, request *Request) Request {
-
-	request.parseHeaders(data)
-	request.parseStartLine(data)
-
-	return *request
+func (r *Request) build(data string) {
+	r.parseHeaders(data)
+	r.parseStartLine(data)
+	r.parseBody(data)
 }
-
-// func parseResponse(body string, response *Response) {
-
-// 	startLine := "HTTP/1.1 200 OK\r\n"
-// 	headers := map[string]string{
-// 		"Content-Type":   "Application/json",
-// 		"Content-Length": string(len(body)),
-// 	}
-// }
 
 func (r *Request) parseStartLine(data string) {
 	startLine := data[:strings.Index(data, "\r\n")]
@@ -123,9 +140,11 @@ func (r *Request) parseStartLine(data string) {
 	}
 }
 
-func (r Request) parseHeaders(data string) {
+func (r *Request) parseHeaders(data string) {
 	headersStartIdx := strings.Index(data, "\r\n") + 2 // first character of the first header
+	fmt.Println("heads", headersStartIdx)
 	headersEndIdx := strings.LastIndex(data, "\r\n\r\n")
+	fmt.Println("headend", headersEndIdx)
 	headers := strings.Split(data[headersStartIdx:headersEndIdx], "\r\n")
 	fmt.Printf("%q\n", headers)
 	for _, header := range headers {
@@ -140,8 +159,32 @@ func (r Request) parseHeaders(data string) {
 
 }
 
-func (r Request) parseBody(data string) {
-	headersEndIdx := strings.LastIndex(data, "\r\n\r\n") + 4
-	body := data[headersEndIdx:]
-	r.body = body
+func (r *Request) parseBody(data string) {
+	r.body = "moda"
+}
+
+func (r *Response) parseHeaders(contentType string, contentLength string) {
+	r.headers = map[string]string{
+		"Content-Type":   " " + contentType,
+		"Content-Length": " " + contentLength,
+	}
+}
+
+func (r *Response) parseBody(content string) {
+	r.body = content
+}
+
+func (r Response) String() string {
+	response := "HTTP/1.1 200 OK\r\n"
+
+	for k, v := range r.headers {
+		response += fmt.Sprintf("%s:%s\r\n", k, v)
+	}
+
+	// add the line before the body
+	response += "\r\n"
+
+	response += r.body
+
+	return response
 }
