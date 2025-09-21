@@ -198,8 +198,16 @@ func (r *Response) parseHeaders(request Request, contentType string, contentLeng
 		"Content-Length": " " + contentLength,
 	}
 
-	if encodings, exists := request.headers["Accept-Encoding"]; exists && encodings == "gzip" {
-		r.headers["Content-Encoding"] = " " + encodings
+	if encodings, exists := request.headers["Accept-Encoding"]; exists && strings.Contains(encodings, "gzip") {
+		// validEncodings := make([]string, 5)
+		// for _, v := range strings.Split(encodings, ",") {
+		// 	if strings.TrimSpace(v) != "gzip" {
+		// 		continue
+		// 	}
+		// 	validEncodings = append(validEncodings, "gzip")
+		// }
+		// fmt.Println("ve", validEncodings)
+		r.headers["Content-Encoding"] = " " + "gzip"
 	}
 }
 
