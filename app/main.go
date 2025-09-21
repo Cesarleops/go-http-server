@@ -104,7 +104,7 @@ func handleConn(conn net.Conn) {
 		}
 
 		response.parseStartLine("200", "OK")
-		response.parseHeaders("application/octet-stream", strconv.Itoa(len(f)))
+		response.parseHeaders(*request, "application/octet-stream", strconv.Itoa(len(f)))
 		response.parseBody(string(f))
 		response := response.String()
 		conn.Write([]byte(response))
@@ -114,7 +114,7 @@ func handleConn(conn net.Conn) {
 	if target == "/user-agent" {
 		content := request.headers["User-Agent"]
 		response.parseStartLine("200", "OK")
-		response.parseHeaders("text/plain", strconv.Itoa(len(content)))
+		response.parseHeaders(*request, "text/plain", strconv.Itoa(len(content)))
 		response.parseBody(content)
 		response := response.String()
 		conn.Write([]byte(response))
@@ -123,15 +123,15 @@ func handleConn(conn net.Conn) {
 	}
 	if paths[0] == "echo" {
 		response.parseStartLine("200", "OK")
-		response.parseHeaders("text/plain", strconv.Itoa(len(paths[1])))
+		response.parseHeaders(*request, "text/plain", strconv.Itoa(len(paths[1])))
 		response.parseBody(paths[1])
 		response := response.String()
+		fmt.Println("res", response)
 		conn.Write([]byte(response))
 		return
 	}
 
 	if target == "/" {
-
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 	} else {
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
@@ -191,10 +191,15 @@ func (r *Response) parseStartLine(statusCode string, reason string) {
 
 }
 
-func (r *Response) parseHeaders(contentType string, contentLength string) {
+func (r *Response) parseHeaders(request Request, contentType string, contentLength string) {
+
 	r.headers = map[string]string{
 		"Content-Type":   " " + contentType,
 		"Content-Length": " " + contentLength,
+	}
+
+	if encodings, exists := request.headers["Accept-Encoding"]; exists && encodings == "gzip" {
+		r.headers["Content-Encoding"] = " " + encodings
 	}
 }
 
