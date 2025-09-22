@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"net"
 	"os"
@@ -17,7 +19,7 @@ type Request struct {
 type Response struct {
 	startLine ResponseStartLine
 	headers   map[string]string
-	body      string
+	body      []byte
 }
 
 type RequestStartLine struct {
@@ -106,26 +108,28 @@ func handleConn(conn net.Conn) {
 		response.parseStartLine("200", "OK")
 		response.parseHeaders(*request, "application/octet-stream", strconv.Itoa(len(f)))
 		response.parseBody(string(f))
-		response := response.String()
+		response := response.Bytes()
 		conn.Write([]byte(response))
 		return
 
 	}
+
 	if target == "/user-agent" {
 		content := request.headers["User-Agent"]
 		response.parseStartLine("200", "OK")
 		response.parseHeaders(*request, "text/plain", strconv.Itoa(len(content)))
 		response.parseBody(content)
-		response := response.String()
+		response := response.Bytes()
 		conn.Write([]byte(response))
 		return
 
 	}
+
 	if paths[0] == "echo" {
 		response.parseStartLine("200", "OK")
 		response.parseHeaders(*request, "text/plain", strconv.Itoa(len(paths[1])))
 		response.parseBody(paths[1])
-		response := response.String()
+		response := response.Bytes()
 		fmt.Println("res", response)
 		conn.Write([]byte(response))
 		return
@@ -212,21 +216,51 @@ func (r *Response) parseHeaders(request Request, contentType string, contentLeng
 }
 
 func (r *Response) parseBody(content string) {
-	r.body = content
+
+	_, shouldCompress := r.headers["Content-Encoding"]
+	if shouldCompress {
+		var buffer bytes.Buffer
+		compressor := gzip.NewWriter(&buffer)
+		_, err := compressor.Write([]byte(content))
+		if err != nil {
+			panic(err)
+		}
+		compressor.Close()
+
+		content := buffer.Bytes()
+
+		r.headers["Content-Length"] = " " + strconv.Itoa(len(content))
+		r.body = content
+		return
+
+	}
+	r.body = []byte(content)
 }
 
-func (r Response) String() string {
+// func (r Response) String() string {
 
-	response := r.startLine.protocol + " " + r.startLine.status + " " + r.startLine.reason + "\r\n"
+// 	response := r.startLine.protocol + " " + r.startLine.status + " " + r.startLine.reason + "\r\n"
 
+// 	for k, v := range r.headers {
+// 		response += fmt.Sprintf("%s:%s\r\n", k, v)
+// 	}
+
+// 	// add the line before the body
+// 	response += "\r\n"
+
+// 	response += r.body
+
+// 	return response
+// }
+
+func (r Response) Bytes() []byte {
+	// build headers as string
+	headers := r.startLine.protocol + " " + r.startLine.status + " " + r.startLine.reason + "\r\n"
 	for k, v := range r.headers {
-		response += fmt.Sprintf("%s:%s\r\n", k, v)
+		headers += fmt.Sprintf("%s: %s\r\n", k, v)
 	}
+	headers += "\r\n"
 
-	// add the line before the body
-	response += "\r\n"
-
-	response += r.body
-
-	return response
+	// combine headers (as bytes) + body (as raw bytes)
+	return append([]byte(headers), r.body...)
 }
