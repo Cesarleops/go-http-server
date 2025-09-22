@@ -64,14 +64,18 @@ func handleConn(conn net.Conn) {
 		buf := make([]byte, 1024)
 
 		b, err := conn.Read(buf)
-		fmt.Println("b", b)
+
+		if b == 0 {
+			break
+		}
+
 		if err != nil {
 			conn.Write([]byte("HTTP/1.1 404 Not Found"))
 			break
 		}
 
 		data := string(buf)
-		fmt.Println("data", data)
+
 		request := &Request{
 			headers: make(map[string]string),
 		}
@@ -81,7 +85,9 @@ func handleConn(conn net.Conn) {
 		response := &Response{
 			headers: make(map[string]string),
 		}
+
 		target := request.startLine.target
+
 		paths := strings.Split(strings.TrimPrefix(target, "/"), "/")
 
 		if strings.HasPrefix(target, "/files") {
@@ -107,24 +113,18 @@ func handleConn(conn net.Conn) {
 				response := response.Bytes()
 				conn.Write([]byte(response))
 			}
-		}
-
-		if target == "/user-agent" {
+		} else if target == "/user-agent" {
 			content := request.headers["User-Agent"]
 			response.build(*request, content, "text/plain", "200", "OK")
 			response := response.Bytes()
 			conn.Write([]byte(response))
-		}
-
-		if paths[0] == "echo" {
+		} else if paths[0] == "echo" {
+			fmt.Println("echoing...", paths[1])
 			response.build(*request, paths[1], "text/plain", "200", "OK")
 			response := response.Bytes()
 			conn.Write([]byte(response))
-		}
-
-		if target == "/" {
+		} else if target == "/" {
 			conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-
 		} else {
 			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 
