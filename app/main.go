@@ -45,7 +45,7 @@ func main() {
 
 	for {
 		c, err := l.Accept()
-
+		fmt.Println("Accepting...")
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
@@ -58,88 +58,79 @@ func main() {
 
 func handleConn(conn net.Conn) {
 
-	buf := make([]byte, 1024)
+	for {
+		fmt.Println("handling...")
 
-	_, err := conn.Read(buf)
+		buf := make([]byte, 1024)
 
-	if err != nil {
-		conn.Write([]byte("HTTP/1.1 404 Not Found"))
-		return
-	}
-
-	data := string(buf)
-
-	request := &Request{
-		headers: make(map[string]string),
-	}
-
-	request.build(data)
-
-	response := &Response{
-		headers: make(map[string]string),
-	}
-	target := request.startLine.target
-	paths := strings.Split(strings.TrimPrefix(target, "/"), "/")
-
-	if strings.HasPrefix(target, "/files") {
-
-		fileName := paths[1]
-		directory := os.Args[2]
-
-		if request.startLine.method == "POST" {
-			response.parseStartLine("201", "Created")
-			fmt.Printf("b %q\n", request.body)
-			err := os.WriteFile(directory+"/"+fileName, []byte(request.body), 0644)
-			if err != nil {
-				conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-				return
-			}
-			conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
-			return
-
-		}
-		f, err := os.ReadFile(directory + "/" + fileName)
-
+		b, err := conn.Read(buf)
+		fmt.Println("b", b)
 		if err != nil {
-			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-			return
+			conn.Write([]byte("HTTP/1.1 404 Not Found"))
+			break
 		}
 
-		response.parseStartLine("200", "OK")
-		response.parseHeaders(*request, "application/octet-stream", strconv.Itoa(len(f)))
-		response.parseBody(string(f))
-		response := response.Bytes()
-		conn.Write([]byte(response))
-		return
+		data := string(buf)
+		fmt.Println("data", data)
+		request := &Request{
+			headers: make(map[string]string),
+		}
 
+		request.build(data)
+
+		response := &Response{
+			headers: make(map[string]string),
+		}
+		target := request.startLine.target
+		paths := strings.Split(strings.TrimPrefix(target, "/"), "/")
+
+		if strings.HasPrefix(target, "/files") {
+
+			fileName := paths[1]
+			directory := os.Args[2]
+
+			if request.startLine.method == "POST" {
+				response.parseStartLine("201", "Created")
+				err := os.WriteFile(directory+"/"+fileName, []byte(request.body), 0644)
+				if err != nil {
+					conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+				}
+				conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
+
+			} else {
+				f, err := os.ReadFile(directory + "/" + fileName)
+
+				if err != nil {
+					conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+				}
+				response.build(*request, string(f), "application/octet-stream", "200", "OK")
+				response := response.Bytes()
+				conn.Write([]byte(response))
+			}
+		}
+
+		if target == "/user-agent" {
+			content := request.headers["User-Agent"]
+			response.build(*request, content, "text/plain", "200", "OK")
+			response := response.Bytes()
+			conn.Write([]byte(response))
+		}
+
+		if paths[0] == "echo" {
+			response.build(*request, paths[1], "text/plain", "200", "OK")
+			response := response.Bytes()
+			conn.Write([]byte(response))
+		}
+
+		if target == "/" {
+			conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+
+		} else {
+			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+
+		}
 	}
 
-	if target == "/user-agent" {
-		content := request.headers["User-Agent"]
-		response.parseStartLine("200", "OK")
-		response.parseHeaders(*request, "text/plain", strconv.Itoa(len(content)))
-		response.parseBody(content)
-		response := response.Bytes()
-		conn.Write([]byte(response))
-		return
-
-	}
-
-	if paths[0] == "echo" {
-		response.parseStartLine("200", "OK")
-		response.parseHeaders(*request, "text/plain", strconv.Itoa(len(paths[1])))
-		response.parseBody(paths[1])
-		response := response.Bytes()
-		fmt.Println("res", response)
-		conn.Write([]byte(response))
-		return
-	}
-
-	if target == "/" {
-		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-	} else {
-		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-	}
 }
 
 func (r *Request) build(data string) {
@@ -203,14 +194,6 @@ func (r *Response) parseHeaders(request Request, contentType string, contentLeng
 	}
 
 	if encodings, exists := request.headers["Accept-Encoding"]; exists && strings.Contains(encodings, "gzip") {
-		// validEncodings := make([]string, 5)
-		// for _, v := range strings.Split(encodings, ",") {
-		// 	if strings.TrimSpace(v) != "gzip" {
-		// 		continue
-		// 	}
-		// 	validEncodings = append(validEncodings, "gzip")
-		// }
-		// fmt.Println("ve", validEncodings)
 		r.headers["Content-Encoding"] = " " + "gzip"
 	}
 }
@@ -237,21 +220,11 @@ func (r *Response) parseBody(content string) {
 	r.body = []byte(content)
 }
 
-// func (r Response) String() string {
-
-// 	response := r.startLine.protocol + " " + r.startLine.status + " " + r.startLine.reason + "\r\n"
-
-// 	for k, v := range r.headers {
-// 		response += fmt.Sprintf("%s:%s\r\n", k, v)
-// 	}
-
-// 	// add the line before the body
-// 	response += "\r\n"
-
-// 	response += r.body
-
-// 	return response
-// }
+func (resp *Response) build(request Request, content string, contentType string, statusCode string, reason string) {
+	resp.parseStartLine(statusCode, reason)
+	resp.parseHeaders(request, contentType, strconv.Itoa(len(content)))
+	resp.parseBody(content)
+}
 
 func (r Response) Bytes() []byte {
 	// build headers as string
